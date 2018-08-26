@@ -1,0 +1,10 @@
+{
+  "plugins": ["jasmine"],
+  "env": {
+    "jasmine": true
+  },
+  "globals": {
+    "inject": false
+  },
+  "extends": ["plugin:jasmine/recommended"]
+}

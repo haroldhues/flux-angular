@@ -1,0 +1,1 @@
+import './flux-angular.spec'
