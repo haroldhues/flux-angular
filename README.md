@@ -3,7 +3,7 @@
 **flux-angular** makes it easy to implement a performant, scalable, and clean
 [flux application architecture](https://facebook.github.io/flux/docs/overview.html) in an angular
 application. It does this by providing access to a new `angular.store` method
-for holding immutable application state using [Baobab](https://github.com/Yomguithereal/baobab).
+for holding immutable application state.
 The `flux` service is exposed for dispatching actions using the [Yahoo Dispatchr](https://github.com/yahoo/fluxible/tree/master/packages/dispatchr).
 `$scope.$listenTo` is exposed as a way to respond to changes in a store and sync them with the view-model.
 
@@ -37,18 +37,12 @@ Some of the pros:
 
 - Faster reads because there is no deep cloning
 - Less renders and `$scope.$watch` triggers because the reference to the object doesn't change unless the object changes
-- Computed data (by using `this.monkey` in a store) can be observed in the same way
-  as raw data. This allows for more logic to live in the store (e.g. a
-  sorted version of a list) and for angular to only re-render when the raw data
-  underlying the computed data changes. See the [full
-  docs](https://github.com/Yomguithereal/baobab#computed-data-or-monkey-business).
 - Changes are batched together so that multiple dispatches only trigger one
-  re-render is needed. This can be disabled by setting the `asynchronous`
+  re-render. This can be disabled by setting the `asynchronous`
   option to false.
 
 Some of the cons:
 
-- Need to use a slightly [more verbose API](https://github.com/Yomguithereal/baobab#updates) for changing state.
 - Slightly slower writes
 - `ng-repeat` with immutable objects need to use the `track by` option.
   Otherwise angular will fail, complaining it can't add the `$$hashKey`
@@ -63,16 +57,17 @@ Some of the cons:
 Conclusion:
 **It is faster, but a bit more verbose!**
 
+You can use `flux-angular` with Plain Old JavaScript Objects (POJOs) and you
+can also use libraries like [Baobab](docs/Baobab.md) to maintain state.
+
 ### Configuration
 
-Options that can be specified for the Baobab immutable store are [described
-here](https://github.com/Yomguithereal/baobab#options).
-For example, you may want to turn off immutability in production for a slight speed
-increase, which you can do by setting the defaults:
+By default, the state of stores will be deep frozen in development to help catch state mutation bugs, but
+disabled for a small speed increase in production. You can override this behavior like this:
 
 ```javascript
 angular.module('app', ['flux']).config(function(fluxProvider) {
-  fluxProvider.setImmutableDefaults({ immutable: false })
+  fluxProvider.useDeepFreeze(false)
 })
 ```
 
@@ -85,15 +80,27 @@ angular.module('app', ['flux']).config(function(fluxProvider) {
 })
 ```
 
+By default, your `$listenTo` callbacks will be batched together so that multiple dispatches only trigger one
+re-render. This can be disabled like this:
+
+```javascript
+angular.module('app', ['flux']).config(function(fluxProvider) {
+  fluxProvider.useBatching(false)
+})
+```
+
 ### Create a store
 
 ```javascript
 angular.module('app', ['flux']).store('MyStore', function() {
   return {
     initialize: function() {
-      this.state = this.immutable({
+      this.state = new Baobab(({
         comments: [],
       })
+    },
+    getState: function() {
+      return this.state.get()
     },
     handlers: {
       ADD_COMMENT: 'addComment',
@@ -114,9 +121,6 @@ angular.module('app', ['flux']).store('MyStore', function() {
 })
 ```
 
-See the [Baobab docs](https://github.com/Yomguithereal/baobab#updates) for
-documentation on how to retrieve and update the immutable state.
-
 ### Two way databinding
 
 ```javascript
@@ -125,7 +129,7 @@ angular
   .store('MyStore', function() {
     return {
       initialize: function() {
-        this.state = this.immutable({
+        this.state = new Baobab({
           person: {
             name: 'Jane',
             age: 30,
@@ -133,6 +137,9 @@ angular
           },
         })
       },
+      getState: function() {
+        return this.state.get()
+      }
       handlers: {
         SAVE_PERSON: 'savePerson',
       },
@@ -155,7 +162,7 @@ angular
       var vm = this
       vm.savePerson = myStoreActions.savePerson
       vm.$listenTo(MyStore, setStoreVars)
-      vm.$listenTo(MyStore, ['person', 'name'], setName)
+      vm.$listenTo(MyStore, s => s.person.name, setName)
 
       function setStoreVars() {
         $scope.person = MyStore.person
@@ -242,7 +249,10 @@ angular
   .store('CommentsStore', function() {
     return {
       initialize: function() {
-        this.state = this.immutable({ comments: [] })
+        this.state = new Baobab({ comments: [] })
+      },
+      getState() {
+        return this.state.get()
       },
       handlers: {
         ADD_COMMENT: 'addComment',
@@ -260,7 +270,10 @@ angular
   .store('NotificationStore', function() {
     return {
       initialize: function() {
-        this.state = this.immutable({ notifications: [] })
+        this.state = new Baobab({ notifications: [] })
+      },
+      getState() {
+        return this.state.get()
       },
       handlers: {
         ADD_COMMENT: 'addNotification',
@@ -300,18 +313,6 @@ describe('adding items', function() {
     flux.dispatch('ADD_ITEM', 1)
     expect(MyStore.getItems()).toEqual([1])
   }))
-})
-```
-
-If you are doing integration tests using protractor you will want to disable
-asynchronous event dispatching in Baobab since it relies on `setTimeout`, which
-protractor can't detect:
-
-```javascript
-browser.addMockModule('protractorFixes', function() {
-  angular.module('protractorFixes', []).config(function(fluxProvider) {
-    fluxProvider.setImmutableDefaults({ asynchronous: false })
-  })
 })
 ```
 
