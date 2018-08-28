@@ -12,7 +12,9 @@
     "format": "run-s format:eslint format:prettier",
     "format:eslint": "eslint --fix \"**/*.js\"",
     "format:prettier": "prettier --write \"**/*.{js,json,md,yml}\"",
-    "lint": "eslint \"**/*.js\"",
+    "lint": "run-s lint:eslint lint:tsc",
+    "lint:eslint": "eslint \"**/*.js\"",
+    "lint:tsc": "tsc -p .",
     "test": "karma start --single-run",
     "karma": "karma start",
     "pretest": "run-s lint build"
@@ -76,7 +78,11 @@
     "angular": "^1.6.4"
   },
   "dependencies": {
+    "@types/angular": "^1.6.50",
+    "@types/angular-mocks": "^1.7.0",
+    "@types/dispatchr": "^1.2.1",
     "baobab": "^2.4.3",
-    "dispatchr": "^0.3.3"
+    "dispatchr": "^0.3.3",
+    "typescript": "^3.0.1"
   }
 }

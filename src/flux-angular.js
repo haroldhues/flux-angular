@@ -1,6 +1,6 @@
 import Baobab from 'baobab'
-import dispatchr from 'dispatchr'
 import angular from 'angular'
+import dispatchr from 'dispatchr'
 
 const { createDispatcher } = dispatchr
 
@@ -12,6 +12,9 @@ let useEvalAsync = true
 // A function that creates stores
 function createStore(name, spec = {}, immutableDefaults, flux) {
   // Constructor of a yahoo dispatchr store
+  /**
+   * @param {dispatchr.Dispatcher} dispatcher
+   */
   const Store = function(dispatcher) {
     this.dispatcher = dispatcher
 
@@ -63,13 +66,48 @@ function createStore(name, spec = {}, immutableDefaults, flux) {
     Store.prototype[key] = spec[key]
   })
 
+  if (!spec.exports) {
+    throw new Error('You have to add an exports object to your store: ' + name)
+  }
+
+  Store.prototype.exports = {}
+  Object.defineProperty(Store.prototype, 'exports', {
+    get() {
+      const storeInstance = this
+      const instanceExports = {}
+
+      Object.keys(spec.exports).forEach(function(key) {
+        // Create a getter
+        const descriptor = Object.getOwnPropertyDescriptor(spec.exports, key)
+        if (descriptor.get) {
+          Object.defineProperty(instanceExports, key, {
+            enumerable: descriptor.enumerable,
+            configurable: descriptor.configurable,
+            get: descriptor.get.bind(storeInstance),
+          })
+        } else {
+          instanceExports[key] = spec.exports[key].bind(storeInstance)
+        }
+      })
+
+      // NOTE: Magic here: this will shadow the static getter. Further uses of store.exports
+      // will not need to build the exports array again. See https://goo.gl/jXYfAS
+      Object.defineProperty(storeInstance, 'exports', {
+        writable: false,
+        value: instanceExports,
+      })
+
+      return storeInstance.exports
+    },
+  })
+
   return Store
 }
 
 // Flux Service is a wrapper for the Yahoo Dispatchr
 const FluxService = function(immutableDefaults) {
   this.stores = []
-  this.dispatcherInstance = createDispatcher()
+  this.dispatcherInstance = createDispatcher({})
   this.dispatcher = this.dispatcherInstance.createContext()
 
   this.dispatch = function() {
@@ -84,51 +122,23 @@ const FluxService = function(immutableDefaults) {
   }
 
   this.createStore = function(name, spec) {
-    const store = createStore(name, spec, immutableDefaults, this)
-    let storeInstance
-
-    // Create the exports object
-    store.exports = {}
-
-    this.dispatcherInstance.registerStore(store)
-    this.stores.push(store)
-
-    // Add cloning to exports
-
-    if (!spec.exports) {
-      throw new Error(
-        'You have to add an exports object to your store: ' + name
-      )
-    }
-
-    storeInstance = this.dispatcher.getStore(store)
-    Object.keys(spec.exports).forEach(function(key) {
-      // Create a getter
-      const descriptor = Object.getOwnPropertyDescriptor(spec.exports, key)
-      if (descriptor.get) {
-        Object.defineProperty(store.exports, key, {
-          enumerable: descriptor.enumerable,
-          configurable: descriptor.configurable,
-          get: () => descriptor.get.apply(storeInstance),
-        })
-      } else {
-        store.exports[key] = function() {
-          return spec.exports[key].apply(storeInstance, arguments)
-        }
-        spec.exports[key] = spec.exports[key].bind(storeInstance)
-      }
-    })
-
-    return store.exports
+    const Store = createStore(name, spec, immutableDefaults, this)
+    this.dispatcherInstance.registerStore(Store)
+    const instance = this.dispatcher.getStore(Store)
+    const exports = instance.exports
+    this.stores.push({ Store, instance, exports })
+    return exports
   }
 
   this.getStore = function(storeExport) {
-    const store = this.stores.filter(s => s.exports === storeExport)[0]
-    return this.dispatcher.getStore(store)
+    const { Store } = this.stores.filter(
+      ({ exports }) => exports === storeExport
+    )[0]
+    return this.dispatcher.getStore(Store)
   }
 
   this.areStoresRegistered = function(stores) {
-    const storeNames = this.stores.map(store => store.storeName)
+    const storeNames = this.stores.map(({ Store }) => Store.storeName)
     return stores.every(storeName => storeNames.indexOf(storeName) > -1)
   }
 
@@ -144,9 +154,9 @@ const FluxService = function(immutableDefaults) {
 }
 
 // Wrap "angular.module" to attach store method to module instance
-angular.module = function() {
+angular['module'] = function(...args) {
   // Call the module as normaly and grab the instance
-  const moduleInstance = angularModule.apply(angular, arguments)
+  const moduleInstance = angularModule.apply(angular, args)
 
   // Attach store method to instance
   moduleInstance.store = function(storeName, storeDefinition) {
@@ -170,30 +180,29 @@ angular.module = function() {
   return moduleInstance
 }
 
+class FluxProvider {
+  constructor() {
+    this.immutableDefaults = {}
+    this.$get = [() => new FluxService(this.immutableDefaults)]
+  }
+
+  // Defaults that are passed on to Baobab: https://github.com/Yomguithereal/baobab#options
+  setImmutableDefaults(defaults) {
+    this.immutableDefaults = defaults
+  }
+
+  autoInjectStores(val) {
+    autoInjectStores = val
+  }
+
+  useEvalAsync(val) {
+    useEvalAsync = val
+  }
+}
+
 angular
   .module('flux', [])
-  .provider('flux', function FluxProvider() {
-    let immutableDefaults = {}
-
-    // Defaults that are passed on to Baobab: https://github.com/Yomguithereal/baobab#options
-    this.setImmutableDefaults = function(defaults) {
-      immutableDefaults = defaults
-    }
-
-    this.autoInjectStores = function(val) {
-      autoInjectStores = val
-    }
-
-    this.useEvalAsync = function(val) {
-      useEvalAsync = val
-    }
-
-    this.$get = [
-      function fluxFactory() {
-        return new FluxService(immutableDefaults)
-      },
-    ]
-  })
+  .provider('flux', () => new FluxProvider())
   .run([
     '$rootScope',
     '$injector',
